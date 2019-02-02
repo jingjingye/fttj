@@ -15,25 +15,30 @@ vocabulary = None
 word_embedding = None
 
 
-def trainWordvector(corpusFile="checkpoint/corpus.txt"):
+def trainWordvector(genFile=False, corpusFile="checkpoint/corpus.txt"):
     config = myutil.read_config("conf/fttj.conf")
+    logger = myutil.getLogger("parsexml.log")
 
     # 1: 生成corpus文档
-    with open(corpusFile, 'w', encoding="utf-8") as corpus:
-        # 案件
-        dir = config["corpus_dir"]
-        for file in os.listdir(dir):
-            dom = xml.dom.minidom.parse(dir + '/' + file)
-            nodelist = dom.documentElement.getElementsByTagName("AJJBQK")
-            if len(nodelist) > 0:
-                text = nodelist[0].getAttribute("value")
-                __appendToFile(text, corpus)
+    if genFile:
+        with open(corpusFile, 'w', encoding="utf-8") as corpus:
+            # 案件
+            dir = config["corpus_dir"]
+            for file in os.listdir(dir):
+                try:
+                    dom = xml.dom.minidom.parse(dir + '/' + file)
+                    nodelist = dom.documentElement.getElementsByTagName("AJJBQK")
+                    if len(nodelist) > 0:
+                        text = nodelist[0].getAttribute("value")
+                        __appendToFile(text, corpus)
+                except xml.parsers.expat.ExpatError:
+                    logger.error("%s编码错误" % file)
 
-        # 法条
-        db = dbutil.get_mongodb_conn()
-        statutes_set = db.statutes
-        for line in statutes_set.find():
-            __appendToFile(line["content"], corpus)
+            # 法条
+            db = dbutil.get_mongodb_conn()
+            statutes_set = db.statutes
+            for line in statutes_set.find():
+                __appendToFile(line["content"], corpus)
 
     # 2: 训练词向量
     sentences = word2vec.LineSentence(corpusFile)

@@ -2,6 +2,7 @@
 
 import jieba.posseg as psg
 import util.db_util as dbutil
+import util.function_util as myutil
 import random
 import math
 import re
@@ -69,10 +70,13 @@ def statutes_fenci():
 
 
 def case_fenci_first():
+    logger = myutil.getLogger("fenci.log")
     db = dbutil.get_mongodb_conn()
     cases_set = db.cases
     words_set = db.words
-    for line in cases_set.find():
+
+    for line in cases_set.find({"flag": 1}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])    # 记录当前xml
         ygsc_words = fenci(line["ygsc"])
 
         # 1：词长小于指定长度的
@@ -160,7 +164,7 @@ def case_fenci_second():
 
 
 if __name__ == "__main__":
-    statutes_fenci()
-    # case_fenci_first()
+    # statutes_fenci()
+    case_fenci_first()
     # compute_words_entropy()
     # case_fenci_second()
