@@ -17,7 +17,7 @@ def trainRules():
     rules_set = db.rules
 
     # 挖掘规则
-    ftids = [case["ftids"] for case in cases_set.find({},{"ftids":1})]
+    ftids = [case["ftids"] for case in cases_set.find({"flag": 2}, {"ftids":1}, no_cursor_timeout=True)]
     rules = fptree.generateRules(ftids, config["minsup"], config["minconf"])
     # 简化规则
     rules = __prunedRules(rules)

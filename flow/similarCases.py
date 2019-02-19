@@ -21,7 +21,7 @@ def trainSimilarCases():
     xml_names = []
     db = dbutil.get_mongodb_conn()
     cases_set = db.cases
-    for line in cases_set.find({"flag": 2}):
+    for line in cases_set.find({"flag": 2}, {"_id": 1, "ygscWords2": 1}, no_cursor_timeout=True).batch_size(20):
         ygscs.append(line["ygscWords2"])
         xml_names.append(line["_id"])
 
@@ -30,7 +30,7 @@ def trainSimilarCases():
     one_hot_matrix = cv.fit_transform(ygscs).toarray()
 
     # lda训练
-    lda = LatentDirichletAllocation(n_topics=200,
+    lda = LatentDirichletAllocation(n_topics=1000,
                                     max_iter=50,
                                     max_doc_update_iter=100,
                                     learning_method='online',

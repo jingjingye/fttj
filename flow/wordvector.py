@@ -10,7 +10,7 @@ import util.function_util as myutil
 import util.db_util as dbutil
 from data_process import fenci
 
-# 低频词 20
+# 低频词 50
 vocabulary = None
 word_embedding = None
 
@@ -42,7 +42,7 @@ def trainWordvector(genFile=False, corpusFile="checkpoint/corpus.txt"):
 
     # 2: 训练词向量
     sentences = word2vec.LineSentence(corpusFile)
-    model = word2vec.Word2Vec(sentences, min_count=20, size=config["embedding_size"])
+    model = word2vec.Word2Vec(sentences, min_count=50, size=config["embedding_size"])
     vocabulary, word_embedding = __get_word_vector(model.wv)
 
     # 3: 保存模型
