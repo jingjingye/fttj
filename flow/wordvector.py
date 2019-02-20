@@ -5,7 +5,7 @@ import numpy as np
 import os
 import re
 import xml.dom.minidom
-import pickle
+from sklearn.externals import joblib
 import util.function_util as myutil
 import util.db_util as dbutil
 from data_process import fenci
@@ -47,9 +47,9 @@ def trainWordvector(genFile=False, corpusFile="checkpoint/corpus.txt"):
 
     # 3: 保存模型
     with open("checkpoint/vocabulary.pk", "wb") as file:
-        pickle.dump(vocabulary, file)
+        joblib.dump(vocabulary, file)
     with open("checkpoint/wordvector.pk", "wb") as file:
-        pickle.dump(word_embedding, file)
+        joblib.dump(word_embedding, file)
 
 
 def __appendToFile(text, file):
@@ -78,7 +78,7 @@ def load_vocabulary():
     global vocabulary
     if vocabulary is None:
         with open("checkpoint/vocabulary.pk", "rb") as file:
-            vocabulary = pickle.load(file)
+            vocabulary = joblib.load(file)
     return vocabulary
 
 
@@ -86,7 +86,7 @@ def load_word_embedding():
     global word_embedding
     if word_embedding is None:
         with open("checkpoint/wordvector.pk", "rb") as file:
-            word_embedding = pickle.load(file)
+            word_embedding = joblib.load(file)
     return word_embedding
 
 

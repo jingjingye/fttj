@@ -3,7 +3,6 @@
 import jieba.posseg as psg
 import util.db_util as dbutil
 import util.function_util as myutil
-import pickle
 import random
 import math
 import re
@@ -45,26 +44,19 @@ def compute_words_entropy():
         )
 
 
-def compute_stopwords():
-    stopwords = []
+def print_stopwords():
     db = dbutil.get_mongodb_conn()
     words_set = db.words
-    for line in words_set.find({"$or": [
-                                         {"entropy": {"$gte": 2.4}, "totalCount": {"$gte": 60000}},
-                                         {"totalCount": {"$lte": 50}}
-                                ]}, {"_id": 1}, no_cursor_timeout=True).batch_size(10):
-        stopwords.append(line["_id"])
-    stopwords_set = set(stopwords)
-    with open("checkpoint/stopwords.pk", "wb") as file:
-        pickle.dump(stopwords_set, file)
-    return stopwords_set
+    for line in words_set.find({"entropy": {"$gte": 2.4}, "totalCount": {"$gte": 60000}},
+                                    {"_id": 1}, no_cursor_timeout=True).batch_size(10):
+        print(line["_id"], end=" ")
 
 
-def get_stopwords():
-    stopwords = set()
-    with open("checkpoint/stopwords.pk", "rb") as file:
-        stopwords = pickle.load(file)
-    return stopwords
+def __not_stopwords(word_db):
+    if (word_db["entropy"] > 2.4 and word_db["totalCount"] >= 60000) or word_db["totalCount"] <= 50:
+        return False
+    else:
+        return True
 
 
 def statutes_fenci():
@@ -80,26 +72,6 @@ def statutes_fenci():
         )
 
 
-def case_fenci_origin():
-    logger = myutil.getLogger("fenci.log")
-    db = dbutil.get_mongodb_conn()
-    cases_set = db.cases
-    for line in cases_set.find({"flag": {"$ne": 0}}, no_cursor_timeout=True).batch_size(10):
-        logger.info(line["_id"])  # 记录当前xml
-
-        words = psg.cut(line["ygsc"])
-        ygsc_words = []
-        for (w, flag) in words:
-            ygsc_words.append(w)
-
-        cases_set.update(
-            {"_id": line["_id"]},  # 更新条件
-            {'$set': {"ygscWordsOrigin": " ".join(ygsc_words)}},  # 更新内容
-            upsert=False,  # 如果不存在update的记录，是否插入
-            multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
-        )
-
-
 def case_fenci_first():
     logger = myutil.getLogger("fenci.log")
     db = dbutil.get_mongodb_conn()
@@ -108,17 +80,34 @@ def case_fenci_first():
 
     for line in cases_set.find({"flag": 1}, no_cursor_timeout=True).batch_size(10):
         logger.info(line["_id"])    # 记录当前xml
-        ygsc_words = fenci(line["ygsc"])
+        ygsc_words = fenci(line["ygsc"])    # 预处理后的分词结果
 
         # 1：词长小于指定长度的
         if len(ygsc_words) < 20:
             flag = 0
+
+            # 更新
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"ygscWords": " ".join(ygsc_words),
+                          "flag": flag
+                          }},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
         else:
+            # 未处理的分词
+            words = psg.cut(line["ygsc"])
+            ygsc_words_ori = []
+            for (w, flag) in words:
+                ygsc_words_ori.append(w)
+
             r = random.random()
             if r < 0.5:    # train
                 flag = 2
                 # 2：训练集计算词的信息熵
-                for word in ygsc_words:
+                ygsc_words_set = set(ygsc_words)
+                for word in ygsc_words_set:
                     word_db = words_set.find_one({"_id": word})
                     if word_db is None:  # 新词
                         words_set.insert_one(
@@ -147,21 +136,21 @@ def case_fenci_first():
             else:          # trial
                 flag = 4
 
-        cases_set.update(
-            {"_id": line["_id"]},  # 更新条件
-            {'$set': {"ygscWords": " ".join(ygsc_words),
-                       "flag": flag
-                      }},  # 更新内容
-            upsert=False,  # 如果不存在update的记录，是否插入
-            multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
-        )
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"ygscWordsOrigin": " ".join(ygsc_words_ori),
+                          "ygscWords": " ".join(ygsc_words),
+                          "flag": flag
+                          }},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
 
 
 def case_fenci_second():
     db = dbutil.get_mongodb_conn()
     cases_set = db.cases
     words_set = db.words
-    stopwords = get_stopwords()
     for line in cases_set.find({"flag": {"$ne": 0}, "ygscWords2": {"$exists": False}}, no_cursor_timeout=True).batch_size(10):
         flag = line["flag"]
         ygsc_words = line["ygscWords"].split(" ")
@@ -169,7 +158,8 @@ def case_fenci_second():
         # 1：进行词筛选处理
         for word in ygsc_words:
             # 1.1 非停用词和低频词、如果非训练集，还要把未出现的词删掉
-            if word not in stopwords and (flag == 2 or words_set.find_one({"_id": word}) is not None):
+            word_db = words_set.find_one({"_id": word})
+            if word_db is not None and __not_stopwords(word_db):
                 # 1.2: 连续五个词中未重复
                 found = False
                 end = len(ygsc_words_2)
@@ -199,6 +189,5 @@ if __name__ == "__main__":
     # statutes_fenci()
     # case_fenci_first()
     # compute_words_entropy()
-    compute_stopwords()
-    # case_fenci_second()
-    # case_fenci_origin()
+    # print_stopwords()
+    case_fenci_second()
