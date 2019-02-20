@@ -3,7 +3,7 @@ from sklearn.neighbors import BallTree
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.feature_extraction.text import CountVectorizer
 import util.db_util as dbutil
-import pickle
+from sklearn.externals import joblib
 
 # 超参数：
 # k个最近邻：k=100
@@ -44,26 +44,26 @@ def trainSimilarCases():
 
     # 保存
     with open("checkpoint/onehot.pk", "wb") as file:
-        pickle.dump(cv, file)
+        joblib.dump(cv, file)
     with open("checkpoint/xml_names.pk", "wb") as file:
-        pickle.dump(xml_names, file)
+        joblib.dump(xml_names, file)
     with open("checkpoint/lda.pk", "wb") as file:
-        pickle.dump(lda, file)
+        joblib.dump(lda, file)
     with open("checkpoint/ball_tree.pk", "wb") as file:
-        pickle.dump(ball_tree, file)
+        joblib.dump(ball_tree, file)
 
 
 def __load_object():
     global cv, xml_names, lda, ball_tree
     if cv is None or xml_names is None or lda is None or ball_tree is None:
         with open("checkpoint/onehot.pk", "rb") as file:
-            cv = pickle.load(file)
+            cv = joblib.load(file)
         with open("checkpoint/xml_names.pk", "rb") as file:
-            xml_names = pickle.load(file)
+            xml_names = joblib.load(file)
         with open("checkpoint/lda.pk", "rb") as file:
-            lda = pickle.load(file)
+            lda = joblib.load(file)
         with open("checkpoint/ball_tree.pk", "rb") as file:
-            ball_tree = pickle.load(file)
+            ball_tree = joblib.load(file)
 
 
 def __compute_sim_score(dis):
