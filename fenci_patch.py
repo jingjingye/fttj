@@ -12,7 +12,6 @@ def case_fenci_patch():
     words_set = db.words
 
     # for line in cases_set.find({"flag": {"$ne": 0}}, no_cursor_timeout=True).batch_size(10):
-    #     logger.info(line["_id"])  # 记录当前xml
     #
     #     # 未处理前结果
     #     words = psg.cut(line["ygsc"])
@@ -27,7 +26,8 @@ def case_fenci_patch():
     #         multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
     #     )
 
-    for line in cases_set.find({"flag": 2}, no_cursor_timeout=True).batch_size(10):
+    for line in cases_set.find({"flag": 2, "patch": {"$exists": False}}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])  # 记录当前xml
         ygsc_words = line["ygscWords"].split(" ")  # 处理后分词
         ygsc_words_set = set(ygsc_words)
         for word in ygsc_words_set:
@@ -53,6 +53,13 @@ def case_fenci_patch():
                     upsert=False,  # 如果不存在update的记录，是否插入
                     multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
                 )
+
+        cases_set.update(
+            {"_id": line["_id"]},  # 更新条件
+            {'$set': {"patch": 0}},  # 更新内容
+            upsert=False,  # 如果不存在update的记录，是否插入
+            multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+        )
 
 
 if __name__ == "__main__":

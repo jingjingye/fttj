@@ -12,6 +12,7 @@ import re
 # 最短的ygsc长度(两处)：20，
 # 停用词最小的熵2.0，停用词词频>=200000、<=50，
 # 不重复的窗口大小5
+# 法条最低引用数30
 
 
 def fenci(content):
@@ -27,18 +28,34 @@ def fenci(content):
     return words_list
 
 
-def compute_words_entropy():
+# def compute_words_entropy():
+#     db = dbutil.get_mongodb_conn()
+#     words_set = db.words
+#     for line in words_set.find():
+#         total = float(line["totalCount"])
+#         entropy = 0.0
+#         for (aydm, ay_count) in line["ayCount"].items():
+#             prop = ay_count/total
+#             entropy -= prop * math.log(prop)
+#         words_set.update(
+#             {"_id": line["_id"]},
+#             {'$set': {"entropy": entropy}},
+#             upsert=False,  # 如果不存在update的记录，是否插入
+#             multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+#         )
+
+
+def compute_words_aynum():
     db = dbutil.get_mongodb_conn()
     words_set = db.words
     for line in words_set.find():
-        total = float(line["totalCount"])
-        entropy = 0.0
+        aynum = 0
         for (aydm, ay_count) in line["ayCount"].items():
-            prop = ay_count/total
-            entropy -= prop * math.log(prop)
+            if ay_count >= 5:
+                aynum += 1
         words_set.update(
             {"_id": line["_id"]},
-            {'$set': {"entropy": entropy}},
+            {'$set': {"aynum": aynum}},
             upsert=False,  # 如果不存在update的记录，是否插入
             multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
         )
@@ -47,13 +64,13 @@ def compute_words_entropy():
 def print_stopwords():
     db = dbutil.get_mongodb_conn()
     words_set = db.words
-    for line in words_set.find({"entropy": {"$gte": 2.4}, "totalCount": {"$gte": 60000}},
-                                    {"_id": 1}, no_cursor_timeout=True).batch_size(10):
+    for line in words_set.find({"aynum": {"$gte": 60}, "totalCount": {"$gte": 5000}}, no_cursor_timeout=True).batch_size(10):
         print(line["_id"], end=" ")
 
 
 def __not_stopwords(word_db):
-    if (word_db["entropy"] > 2.4 and word_db["totalCount"] >= 60000) or word_db["totalCount"] <= 50:
+    # if (word_db["entropy"] > 2.4 and word_db["totalCount"] >= 60000) or word_db["totalCount"] <= 50:
+    if (word_db["aynum"] >= 60 and word_db["totalCount"] >= 5000) or word_db["totalCount"] <= 3:
         return False
     else:
         return True
@@ -148,10 +165,13 @@ def case_fenci_first():
 
 
 def case_fenci_second():
+    logger = myutil.getLogger("fenci.log")
     db = dbutil.get_mongodb_conn()
     cases_set = db.cases
+    statutes_set = db.statutes
     words_set = db.words
     for line in cases_set.find({"flag": {"$ne": 0}, "ygscWords2": {"$exists": False}}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])    # 记录当前xml
         flag = line["flag"]
         ygsc_words = line["ygscWords"].split(" ")
         ygsc_words_2 = []
@@ -171,9 +191,17 @@ def case_fenci_second():
                 if not found:
                     ygsc_words_2.append(word)
 
-        # 2：处理后词长小于指定长度的
-        if len(ygsc_words_2) < 20:
+        # 2：处理后词长小于指定长度的，或过长的
+        if len(ygsc_words_2) < 20 or len(ygsc_words_2) > 80:
             flag = 0
+        else:  # 否则统计法条引用数
+            for ftid in line["ftids"]:
+                statutes_set.update(
+                    {"_id": ftid},
+                    {'$inc': {"trainCount": 1}},
+                    upsert=False,  # 如果不存在update的记录，是否插入
+                    multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+                )
 
         cases_set.update(
             {"_id": line["_id"]},  # 更新条件
@@ -185,9 +213,102 @@ def case_fenci_second():
         )
 
 
+def statutes_fenci_second():
+    db = dbutil.get_mongodb_conn()
+    statutes_set = db.statutes  # statutes表，没有则自动创建
+    words_set = db.words
+    for line in statutes_set.find({"contentWords2": {"$exists": False}}):
+        flag = line["flag"]
+        content_words = line["contentWords"].split(" ")
+        content_words_2 = []
+
+        for word in content_words:
+            # 1.1 非停用词和低频词、如果非训练集，还要把未出现的词删掉
+            word_db = words_set.find_one({"_id": word})
+            if word_db is not None and __not_stopwords(word_db):
+                # 1.2: 连续五个词中未重复
+                found = False
+                end = len(content_words_2)
+                start = max(0, end - 5)
+                for i in range(start, end):
+                    if content_words_2[i] == word:
+                        found = True
+                        break
+                if not found:
+                    content_words_2.append(word)
+
+        # 删掉太短的和太长的
+        if len(content_words_2) < 10 or len(content_words_2) > 100:
+            flag = 0
+
+        statutes_set.update(
+            {"_id": line["_id"]},  # 更新条件
+            {'$set': {"contentWords2": " ".join(content_words_2),
+                      "flag": flag
+                      }},  # 更新内容
+            upsert=False,  # 如果不存在update的记录，是否插入
+            multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+        )
+
+
+def __get_statutes_set():
+    db = dbutil.get_mongodb_conn()
+    statutes_set = db.statutes
+    statute_list = []
+    for line in statutes_set.find({"trainCount": {"$gte": 30}, "flag": {"$ne": 0}}):
+        statute_list.append(line["_id"])
+    return set(statute_list)
+
+
+def clean_by_statutes():
+    logger = myutil.getLogger("clean.log")
+    statutes_list = __get_statutes_set()
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+    statutes_set = db.statutes
+    for line in cases_set.find({"flag": {"$ne": 0}, "clean": {"$exists": False}}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])    # 记录当前xml
+        flag = line["flag"]
+
+        for ftid in line["ftids"]:
+            if ftid not in statutes_list:
+                flag = 0
+                break
+
+        if flag == 0:       # 存在不存在的法条
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"flag": flag}},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
+        elif flag == 3 or flag == 4:
+            if flag == 3:   # 测试集
+                col = "testCount"
+            else:
+                col = "validCount"
+
+            for ftid in line["ftids"]:
+                statutes_set.update(
+                    {"_id": ftid},
+                    {'$inc': {col: 1}},
+                    upsert=False,  # 如果不存在update的记录，是否插入
+                    multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+                )
+
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"clean": 0}},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
+
+
 if __name__ == "__main__":
     # statutes_fenci()
     # case_fenci_first()
-    # compute_words_entropy()
+    compute_words_aynum()
     # print_stopwords()
-    case_fenci_second()
+    # statutes_fenci_second()
+    # case_fenci_second()
+    # clean_by_statutes()
