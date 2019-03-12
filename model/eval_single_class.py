@@ -1,7 +1,5 @@
 # coding=utf-8
 import numpy as np
-import tensorflow as tf
-
 from model.eval_model import EvalModel
 
 
@@ -16,9 +14,11 @@ class EvalSingleClass(EvalModel):
         return self.accuracy, self.loss
 
     def get_assign_op(self):
+        import tensorflow as tf
         return tf.group(tf.assign(self.loss_op, self.loss), tf.assign(self.acc_op, self.accuracy))
 
     def get_eval_summary(self):
+        import tensorflow as tf
         with tf.variable_scope("eval"):
             self.loss_op = tf.get_variable("loss", shape=[], initializer=tf.constant_initializer(0.0))
             self.acc_op = tf.get_variable("acc", shape=[], initializer=tf.constant_initializer(0.0))

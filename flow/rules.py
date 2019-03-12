@@ -1,16 +1,14 @@
 # coding=utf-8
 
 import util.db_util as dbutil
-import util.function_util as myutil
 import model.fptree as fptree
 
 
-def trainRules():
+def trainRules(minsup, minconf):
     '''
     挖掘关联规则
     :return:
     '''
-    config = myutil.read_config("conf/fttj.conf")
     # 获取连接
     db = dbutil.get_mongodb_conn()
     cases_set = db.cases
@@ -18,7 +16,7 @@ def trainRules():
 
     # 挖掘规则
     ftids = [case["ftids"] for case in cases_set.find({"flag": 2}, {"ftids":1}, no_cursor_timeout=True)]
-    rules = fptree.generateRules(ftids, config["minsup"], config["minconf"])
+    rules = fptree.generateRules(ftids, minsup, minconf)
     # 简化规则
     rules = __prunedRules(rules)
 

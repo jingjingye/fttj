@@ -2,15 +2,12 @@
 
 import os
 import random
-
 import numpy as np
 import tensorflow as tf
 
 import util.db_util as dbutil
 import util.function_util as myutil
-from flow.similarCases import runSimilarCases, runCandiStatutes
-from flow.wordvector import seq2id, load_word_embedding
-from model.cnn_model import CNNModel
+from flow.wordvector import load_word_embedding
 from model.eval_single_class import EvalSingleClass
 from model.train_model import TrainModel
 
@@ -19,55 +16,38 @@ from model.train_model import TrainModel
 model = None
 
 
-def trainDataPrepare():
+def trainDataPrepare(sim_type="lda"):
+    '''
+    对于训练集，要选出候选反例
+    :return:
+    '''
     db = dbutil.get_mongodb_conn()
-
-    # 1：案件内容转为id并筛选候选法条
     cases_set = db.cases
-    for line in cases_set.find({"flag": {"$ne": 0}}):
-        ygscid = seq2id(line["ygscWords2"])
-        setdict = {"ygscid": ygscid}
 
-        # 对于训练集和验证集，要选出候选反例
-        if line["flag"] == 2 or line["flag"] == 4:
-            # 获取候选法条
-            simCases = runSimilarCases([line["ygscWords2"]])
-            sorted_candi_statutes = runCandiStatutes(simCases[0])
+    for line in cases_set.find({"flag": 2, "negftids": {"$exists": False}},
+                               {"_id": 1, "ftids": 1, sim_type: 1},
+                               no_cursor_timeout=True).batch_size(10):
+        candi_statute = line[sim_type]
 
-            # 构造反例
-            neg_statutes = []
-            ftidset = set(line["ftids"])
-            max_neg_num = 5 * len(line["ftids"])
-            for (ftid, _) in sorted_candi_statutes:
-                if len(neg_statutes) == max_neg_num:
-                    break
-                elif ftid not in ftidset:
-                    neg_statutes.append(ftid)
-
-            # 加入存储序列
-            setdict["negftids"] = neg_statutes
+        # 构造反例
+        neg_statutes = []
+        ftidset = set(line["ftids"])
+        max_neg_num = random.randint(1, 5) * len(line["ftids"])
+        for ftid in candi_statute:
+            if len(neg_statutes) == max_neg_num:
+                break
+            elif ftid not in ftidset:
+                neg_statutes.append(ftid)
 
         cases_set.update(
             {"_id": line["_id"]},  # 更新条件
-            {'$set': setdict
-             },  # 更新内容
-            upsert=False,  # 如果不存在update的记录，是否插入
-            multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
-        )
-
-    # 2：法条内容转为id
-    statutes_set = db.statutes
-    for line in statutes_set.find():
-        statutes_set.update(
-            {"_id": line["_id"]},  # 更新条件
-            {'$set': {"contentid": seq2id(line["contentWords"])}
-             },  # 更新内容
+            {'$set': {"negftids": neg_statutes}},  # 更新内容
             upsert=False,  # 如果不存在update的记录，是否插入
             multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
         )
 
 
-def trainCnn():
+def trainCnn(type="cnn"):
     # 1:获取所有训练集id和验证集合id
     db = dbutil.get_mongodb_conn()
     cases_set = db.cases
@@ -80,14 +60,22 @@ def trainCnn():
 
     # 2:初始化模型
     conf = myutil.read_config("conf/fttj.conf")
-    model = CNNModel(conf, load_word_embedding())   # 2.1 cnn模型
+    if type == "cnn":
+        from model.cnn_model import CNNModel
+        model = CNNModel(conf, load_word_embedding())   # 2.1 cnn模型
+    elif type == "lstm":
+        from model.lstm_model import LSTMModel
+        model = LSTMModel(conf, load_word_embedding())
+    elif type == "ann":
+        from model.ann_model import ANNModel
+        model = ANNModel(conf, load_word_embedding())
     eval_helper = EvalSingleClass()      # 2.2 评估模型
     train_helper = TrainModel(conf["learning_rate"])    # 2.3 获取train model
     train_op, global_step, train_summary_op = train_helper.get_train_model(model.loss)
     trial_summary_op = eval_helper.get_eval_summary()
-    summary_writer = tf.summary.FileWriter("log", tf.get_default_graph())  # 2.4 可视化
+    summary_writer = tf.summary.FileWriter("log/"+type, tf.get_default_graph())  # 2.4 可视化
     # 2.5 checkpoints
-    checkpoint_prefix = os.path.abspath(os.path.join(os.path.curdir, "checkpoint/cnn", "model"))  # model是文件前缀，不是文件夹名
+    checkpoint_prefix = os.path.abspath(os.path.join(os.path.curdir, "checkpoint/"+type, "model"))  # model是文件前缀，不是文件夹名
     saver = tf.train.Saver(tf.global_variables(), max_to_keep=conf["num_checkpoints"])
 
     # 3: 开始训练
@@ -146,7 +134,7 @@ def __transToData(xml_names):
     s2 = None
     label = np.array([], dtype=np.int32)
     for xml_name in xml_names:
-        case = cases_set.find_one({"_id": xml_name})
+        case = cases_set.find_one({"_id": xml_name}, {"ygscid": 1, "ftids": 1, "negftids": 1})
 
         # 1：原告诉称重复正例＋反例次
         ygsc_array = np.repeat([case["ygscid"]], len(case["ftids"]) + len(case["negftids"]), axis=0)
@@ -159,19 +147,17 @@ def __transToData(xml_names):
     return s1, s2, label
 
 
-def runCnn(xml_name, candi_statutes):
-    __loadCnn()
+def runCnn(ygscid, candi_statutes, type="cnn"):
+    __loadModel(type)
     db = dbutil.get_mongodb_conn()
-    cases_set = db.cases
     statutes_set = db.statutes
 
     # 1: 得到输入数据
     s2 = None
-    for (ftid, ft_score) in candi_statutes:
+    for ftid in candi_statutes:
         statute = statutes_set.find_one({"_id": ftid}, {"contentid": 1})
         s2 = myutil.append_and_pad_2d_array(s2, np.array([statute["contentid"]]))
-    case = cases_set.find_one({"_id": xml_name}, {"ygscid": 1})
-    s1 = np.repeat([case["ygscid"]], s2.shape[0], axis=0)     # 根据s2复制s1
+    s1 = np.repeat([ygscid], s2.shape[0], axis=0)     # 根据s2复制s1
     label = np.repeat([[0]], s2.shape[0], axis=0)              # 根据s2生成label
 
     # 运行
@@ -184,21 +170,22 @@ def runCnn(xml_name, candi_statutes):
     # 转换为法条index
     pred = np.greater_equal(y, 0.5).astype(np.int32).reshape(-1)
     recom_index = np.where(pred == 1)[0]
-    recom_statutes = [candi_statutes[i][0] for i in recom_index]
+    recom_statutes = [candi_statutes[i] for i in recom_index]
     return recom_statutes
 
-def __loadCnn():
+
+def __loadModel(type):
     global model
     if model is None:
         run_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
         sess = tf.InteractiveSession(config=run_config)
-        checkpoint_file = tf.train.latest_checkpoint("checkpoint/cnn")
+        checkpoint_file = tf.train.latest_checkpoint("checkpoint/"+type)
         saver = tf.train.import_meta_graph("{}.meta".format(checkpoint_file))
         saver.restore(sess, checkpoint_file)
-        model = RunCnnModel(sess)
+        model = RunModel(sess)
 
 
-class RunCnnModel:
+class RunModel:
     def __init__(self, sess):
         self.sess = sess
         self.input_s1 = sess.graph.get_operation_by_name("input_s1").outputs[0]

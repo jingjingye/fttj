@@ -12,12 +12,22 @@ class CNNModel(object):
         self.input_s2 = tf.placeholder(tf.int32, shape=[None, None], name="input_s2")
 
         with tf.variable_scope("embedding"):
-            word_embedding_W = tf.constant(word_embedding)      # 词向量，不做改变
+            word_embedding_W = tf.get_variable(name='word_embedding', shape=word_embedding.shape,
+                                               dtype=tf.float32,
+                                               initializer=tf.constant_initializer(word_embedding),
+                                               trainable=False)
             s1 = tf.nn.embedding_lookup(word_embedding_W, self.input_s1)
             s2 = tf.nn.embedding_lookup(word_embedding_W, self.input_s2)
 
         with tf.variable_scope("feature"):
-            dot = tf.matmul(s1, tf.transpose(s2, perm=[0, 2, 1]), name="dot")
+            weight = tf.get_variable("weights", shape=[conf["embedding_size"], conf["embedding_size"]],
+                                initializer=tf.contrib.layers.xavier_initializer())
+            w_tmp = tf.tile(weight, [tf.shape(s1)[0], 1])
+            weight_reshape = tf.reshape(w_tmp, [tf.shape(s1)[0], tf.shape(weight)[0], tf.shape(weight)[1]])
+
+            dot_s1 = tf.matmul(s1, weight_reshape)
+            dot = tf.matmul(dot_s1, tf.transpose(s2, perm=[0, 2, 1]), name="dot")
+
             # manhattan = model_util.batch_manhattan(s1, s2, name="manhattan")
             # euclid = model_util.batch_euclid(s1, s2, name="euclid")
             # x = combine_feature(dot, manhattan, euclid)
@@ -51,19 +61,19 @@ class CNNModel(object):
             self.accuracy = tf.reduce_mean(tf.cast(tf.equal(predict, self.input_y), tf.float32))
 
 
-def combine_feature(dot_matrix, manhattan_matrix, euclid_matrix):
-    # mask_matrix = tf.matmul(mask1, tf.transpose(mask2, perm=[0, 2, 1]))
-    with tf.variable_scope("feature"):
-        dot = normalize_feature(dot_matrix, 0.3, "dot")
-        manhattan = normalize_feature(manhattan_matrix, 0.1, "manhattan")
-        euclid = normalize_feature(euclid_matrix, 0.2, "euclid")
-        feature = tf.concat([dot, manhattan, euclid], axis=3)
-    return feature
-
-
-def normalize_feature(matrix, w_initial, namespace):
-    with tf.variable_scope(namespace):
-        W = tf.get_variable("W", shape=[], initializer=tf.constant_initializer(w_initial),
-                            dtype=tf.float32, trainable=False)
-        out = tf.expand_dims(W * matrix, -1)
-    return out
+# def combine_feature(dot_matrix, manhattan_matrix, euclid_matrix):
+#     # mask_matrix = tf.matmul(mask1, tf.transpose(mask2, perm=[0, 2, 1]))
+#     with tf.variable_scope("feature"):
+#         dot = normalize_feature(dot_matrix, 0.3, "dot")
+#         manhattan = normalize_feature(manhattan_matrix, 0.1, "manhattan")
+#         euclid = normalize_feature(euclid_matrix, 0.2, "euclid")
+#         feature = tf.concat([dot, manhattan, euclid], axis=3)
+#     return feature
+#
+#
+# def normalize_feature(matrix, w_initial, namespace):
+#     with tf.variable_scope(namespace):
+#         W = tf.get_variable("W", shape=[], initializer=tf.constant_initializer(w_initial),
+#                             dtype=tf.float32, trainable=False)
+#         out = tf.expand_dims(W * matrix, -1)
+#     return out

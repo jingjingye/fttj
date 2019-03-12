@@ -1,6 +1,5 @@
 # coding=utf-8
 
-import jieba.posseg as psg
 import util.db_util as dbutil
 import util.function_util as myutil
 
@@ -62,5 +61,116 @@ def case_fenci_patch():
         )
 
 
+def case_fenci_second_patch():
+    logger = myutil.getLogger("fenci_patch.log")
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+    statutes_set = db.statutes
+
+    for line in cases_set.find({"flag": 10, "patch": {"$exists": True}}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])    # 记录当前xml
+        ygsc_words_2 = line["ygscWords2"].split(" ")
+
+        if 3 < len(ygsc_words_2) <= 80:
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"flag": 2}},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
+            for ftid in line["ftids"]:
+                statutes_set.update(
+                    {"_id": ftid},
+                    {'$inc': {"trainCount": 1}},
+                    upsert=False,  # 如果不存在update的记录，是否插入
+                    multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+                )
+
+
+def case_fenci_second_patch_test():
+    logger = myutil.getLogger("fenci_patch.log")
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+
+    for line in cases_set.find({"flag": 10}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])  # 记录当前xml
+        ygsc_words_2 = line["ygscWords2"].split(" ")
+
+        if 3 < len(ygsc_words_2) <= 80:
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"flag": 4}},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
+
+
+def sampling_train(total_num=10000):
+    logger = myutil.getLogger("sample.log")
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+    statutes_set = db.statutes
+
+    num = 0
+
+    for line in cases_set.find({"flag": 12}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])    # 记录当前xml
+        ygsc_words_2 = line["ygscWords2"].split(" ")
+
+        if 10 < len(ygsc_words_2) < 30:
+            num += 1
+            cases_set.update(
+                {"_id": line["_id"]},  # 更新条件
+                {'$set': {"flag": 2}},  # 更新内容
+                upsert=False,  # 如果不存在update的记录，是否插入
+                multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+            )
+            for ftid in line["ftids"]:
+                statutes_set.update(
+                    {"_id": ftid},
+                    {'$inc': {"sampleTrainCount": 1}},
+                    upsert=False,  # 如果不存在update的记录，是否插入
+                    multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+                )
+        if num == total_num:
+            break
+
+
+def sampling_test(total_num=1000):
+    logger = myutil.getLogger("sample_test.log")
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+    statutes_set = db.statutes
+
+    num = 0
+
+    for line in cases_set.find({"flag": 14}, no_cursor_timeout=True).batch_size(10):
+        logger.info(line["_id"])    # 记录当前xml
+        ygsc_words_2 = line["ygscWords2"].split(" ")
+
+        if 10 < len(ygsc_words_2) < 30:
+            ftlegal = True
+            for ftid in line["ftids"]:
+                statute_db = statutes_set.find_one({"_id": ftid, "sampleTrainCount": {"$exists": True}})
+                if statute_db is None:
+                    ftlegal = False
+                    break
+            if ftlegal:
+                num += 1
+                cases_set.update(
+                    {"_id": line["_id"]},  # 更新条件
+                    {'$set': {"flag": 4}},  # 更新内容
+                    upsert=False,  # 如果不存在update的记录，是否插入
+                    multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+                )
+
+        if num == total_num:
+            break
+
+
 if __name__ == "__main__":
-    case_fenci_patch()
+    # case_fenci_patch()
+    # case_fenci_second_patch()
+    # case_fenci_second_patch_test()
+    sampling_train(50000)
+    # sampling_test(5000)
