@@ -265,7 +265,7 @@ def fine_rule_param():
             logger.info("#############rules: minsup=%d, minconf=%f ###########" % (minsup, minconf))
             rules_set.drop()
             trainRules(minsup, minconf)
-            # testRules(text_model="cnn")
+            testRules(text_model="cnn")
 
 
 if __name__ == "__main__":
