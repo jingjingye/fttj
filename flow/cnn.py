@@ -103,7 +103,8 @@ def trainCnn(type="cnn"):
 
         # 3.2 验证集验证一轮
         eval_helper.reset()
-        for j in range(len(trial_xml_names) // conf["batch_size"]):
+        # for j in range(len(trial_xml_names) // conf["batch_size"]):
+        for j in range(50):     # 节省时间，只检验前500个
             start = conf["batch_size"] * j
             end = start + conf["batch_size"]
             s1, s2, label = __transToData(trial_xml_names[start:end])

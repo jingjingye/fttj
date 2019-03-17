@@ -244,10 +244,10 @@ def __print_total_precise_and_recall(precise_sum, recall_sum, case_num, model_ty
 
 def fine_sim_param(sim_type="lda"):
     __load_logger()
-    for sim_num in range(1, 50, 2):
+    for sim_num in range(1, 200, 2):
         logger.info("#############%s,m=%d###########" % (sim_type, sim_num))
-        genSim(flag=4, type=sim_type)
-        for top_k in range(5, 70, 5):
+        genSim(flag=4, type=sim_type, sim_case_num=sim_num)
+        for top_k in range(5, 71, 5):
             evaluateSim(top_k, type=sim_type)
         clearSim(sim_type)
 
@@ -261,7 +261,7 @@ def fine_rule_param():
     rules_set = db.rules
 
     for minsup in range(5, 31, 5):
-        for minconf in np.arange(0.6, 1, 0.1):
+        for minconf in np.arange(0.7, 1, 0.1):
             logger.info("#############rules: minsup=%d, minconf=%f ###########" % (minsup, minconf))
             rules_set.drop()
             trainRules(minsup, minconf)
@@ -269,13 +269,13 @@ def fine_rule_param():
 
 
 if __name__ == "__main__":
-    # fine_sim_param("tfidf")
+    # fine_sim_param("lda")
 
-    # genSim(flag=4, type="tfidf")
+    # genSim(flag=4, type="lda", sim_case_num=5)
     # evaluateSim(30, type="lda")
-    # testCnn(model="ann", recom_num=100, sim_type="tfidf")
+    testCnn(model="cnn", recom_num=50, sim_type="lda")
 
-    fine_rule_param()
+    # fine_rule_param()
     # testRules(text_model="cnn")
 
     # testMulti("svm")
