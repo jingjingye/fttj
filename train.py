@@ -17,11 +17,22 @@ if __name__ == "__main__":
     # trainDataPrepare("lda")
     # trainCnn("ann")
 
+    ##################lr####################
+    from flow.lr import trainDataPrepare, trainLR
+    trainDataPrepare("ann", 35, "lda")
+    # trainLR()
+
     #################rules####################
     # from flow.rules import trainRules
     # trainRules(1, 0.7)
 
     #################constract################
-    from flow.multiLabel import prepareLabels, trainMulti
+    # from flow.multiLabel import prepareLabels, trainMulti
     # prepareLabels(4)
-    trainMulti("svm")
+    # trainMulti("svm")
+
+    #################f1#######################
+    # a = float(input())
+    # b = float(input())
+    # c = 2*a*b/(a+b)
+    # print(str(c))

@@ -87,7 +87,7 @@ def runMulti(strArray, type="decision_tree"):
     case_vector = get_case_vector(strArray, "lda")
     recom = model.predict(case_vector)
     if type == "svm":
-        recom = recom.asarray()
+        recom = recom.toarray()
     return recom
 
 

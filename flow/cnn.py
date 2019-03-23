@@ -172,7 +172,7 @@ def runCnn(ygscid, candi_statutes, type="cnn"):
     pred = np.greater_equal(y, 0.5).astype(np.int32).reshape(-1)
     recom_index = np.where(pred == 1)[0]
     recom_statutes = [candi_statutes[i] for i in recom_index]
-    return recom_statutes
+    return recom_statutes, np.asarray(y).reshape(-1)
 
 
 def __loadModel(type):

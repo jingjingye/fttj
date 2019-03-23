@@ -38,6 +38,19 @@ def statute_refed_num():
     print("max:%f, min:%f, avg:%f, num:%d" % (numpy.max(statutes_vec), numpy.min(statutes_vec), numpy.average(statutes_vec), statutes_vec.shape[0]))
 
 
+def lda_recom_num():
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+    dic = dict()
+
+    for line in cases_set.find({"flag": 4}, {"lda": 1}, no_cursor_timeout=True).batch_size(10):
+        recom_num = len(line["lda"])
+        index = recom_num // 10
+        dic[index] = dic.get(index, 0) + 1
+
+    print(dic)
+
 if __name__ == "__main__":
     # case_ref_num(2)
-    statute_refed_num()
+    # statute_refed_num()
+    lda_recom_num()

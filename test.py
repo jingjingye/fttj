@@ -94,7 +94,7 @@ def evaluateSim(recom_num, type="lda"):     # 只有测试集需要跑这个
     __print_total_precise_and_recall(precise_sum, recall_sum, case_num, type + str(recom_num))
 
 
-def testCnn(model="cnn", recom_num=100, sim_type="lda"):
+def evaluateCnn(model="cnn", recom_num=100, sim_type="lda"):
     '''
     测试文本相关性
     :return:
@@ -119,17 +119,17 @@ def testCnn(model="cnn", recom_num=100, sim_type="lda"):
         candi_statute = line[sim_type][:statute_num]
 
         # 2: 送到模型中运行
-        recom_statute = runCnn(line["ygscid"], candi_statute, model)
+        recom_statute, score = runCnn(line["ygscid"], candi_statute, model)
 
-        # 2: 计算精度、召回
+        # 3: 计算精度、召回
         case_precise, case_recall = __get_precise_and_recall(recom_statute, line["ftids"])
 
-        # 3：加到总的里
+        # 4：加到总的里
         precise_sum += case_precise
         recall_sum += case_recall
         case_num += 1
 
-        # 4: 存入数据库记录
+        # 5: 存入数据库记录
         cases_set.update(
             {"_id": line["_id"]},  # 更新条件
             {'$set': {model: recom_statute,
@@ -144,7 +144,57 @@ def testCnn(model="cnn", recom_num=100, sim_type="lda"):
     __print_total_precise_and_recall(precise_sum, recall_sum, case_num, model)
 
 
-def testRules(text_model="cnn"):
+def evaluateLR(model="cnn", recom_num=35, sim_type="lda"):
+    '''
+    测试文本相关性
+    :return:
+    '''
+    from flow.lr import runLR
+
+    # 存储入数据库的列名
+    model_precise_name = "LR" + model + "Precise"
+    model_recall_name = "LR" + model + "Recall"
+    # sum
+    precise_sum = 0
+    recall_sum = 0
+    case_num = 0
+
+    db = dbutil.get_mongodb_conn()
+    cases_set = db.cases
+    for line in cases_set.find({"flag": 4, sim_type: {"$exists": True}},
+                               {"_id": 1, "ftids": 1, sim_type: 1, "ygscid": 1},
+                               no_cursor_timeout=True).batch_size(20):
+        # 1: 获取备选法条集
+        statute_num = min(len(line[sim_type]), recom_num)
+        candi_statute = line[sim_type][:statute_num]
+
+        # 2: 送到模型中运行
+        recom_statute = runLR(line["ygscid"], candi_statute, model, recom_num)
+
+        # 3: 计算精度、召回
+        case_precise, case_recall = __get_precise_and_recall(recom_statute, line["ftids"])
+
+        # 4：加到总的里
+        precise_sum += case_precise
+        recall_sum += case_recall
+        case_num += 1
+
+        # # 5: 存入数据库记录
+        # cases_set.update(
+        #     {"_id": line["_id"]},  # 更新条件
+        #     {'$set': {model: recom_statute,
+        #               model_precise_name: case_precise,
+        #               model_recall_name: case_recall
+        #               }},  # 更新内容
+        #     upsert=False,  # 如果不存在update的记录，是否插入
+        #     multi=False,  # 可选，mongodb 默认是false,只更新找到的第一条记录
+        # )
+
+        # 计算总的精度、召回
+    __print_total_precise_and_recall(precise_sum, recall_sum, case_num, model)
+
+
+def evaluateRules(text_model="cnn"):
     from flow.rules import runRules
 
     precise_sum = 0
@@ -180,7 +230,7 @@ def testRules(text_model="cnn"):
     __print_total_precise_and_recall(precise_sum, recall_sum, case_num, "rules")
 
 
-def testMulti(multi_model="svm"):
+def evaluateMulti(multi_model="svm"):
     from flow.multiLabel import runMulti
     import numpy as np
 
@@ -192,12 +242,12 @@ def testMulti(multi_model="svm"):
     cases_set = db.cases
     for line in cases_set.find({"flag": 4}, {"_id": 1, "ygscWords2": 1, "label": 1},
                                no_cursor_timeout=True).batch_size(20):
-        recom_statute = runMulti([line["ygscWords2"]], multi_model)
+        recom_statute = runMulti([line["ygscWords2"]], multi_model)[0]
 
         # 2: 计算精度、召回
-        predict_sum = np.maximum(np.sum(recom_statute, axis=1).astype(np.float32), 0.001)
-        score_sum = np.sum(line["label"], axis=1).astype(np.float32)
-        predict_right = np.sum(np.logical_and(recom_statute, line["label"]), axis=1).astype(np.float32)
+        predict_sum = np.maximum(np.sum(recom_statute).astype(np.float32), 0.001)
+        score_sum = np.sum(line["label"]).astype(np.float32)
+        predict_right = np.sum(np.logical_and(recom_statute, line["label"])).astype(np.float32)
         case_precise = np.mean(predict_right / predict_sum)
         case_recall = np.mean(predict_right / score_sum)
 
@@ -265,7 +315,7 @@ def fine_rule_param():
             logger.info("#############rules: minsup=%d, minconf=%f ###########" % (minsup, minconf))
             rules_set.drop()
             trainRules(minsup, minconf)
-            testRules(text_model="cnn")
+            evaluateRules(text_model="cnn")
 
 
 if __name__ == "__main__":
@@ -273,9 +323,11 @@ if __name__ == "__main__":
 
     # genSim(flag=4, type="lda", sim_case_num=5)
     # evaluateSim(30, type="lda")
-    testCnn(model="cnn", recom_num=50, sim_type="lda")
+    # evaluateCnn(model="cnn", recom_num=35, sim_type="lda")
+
+    evaluateLR(model="cnn", recom_num=35, sim_type="lda")
 
     # fine_rule_param()
-    # testRules(text_model="cnn")
+    # evaluateRules(text_model="cnn")
 
-    # testMulti("svm")
+    # evaluateMulti("svm")
